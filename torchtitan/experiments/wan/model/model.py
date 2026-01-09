@@ -390,5 +390,8 @@ class WanDitModel(nn.Module, ModelProtocol):
         x = self.unpatchify(x, (f, h, w))
         return x
 
-    #TODO (limou)
-    # def init_weights
+    
+    def init_weights(self, buffer_device: torch.device | None = None) -> None:
+        #TODO (limou)
+        logger.info("dit init_weights ...")
+        pass

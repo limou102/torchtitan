@@ -33,7 +33,7 @@ class WanTrainer(Trainer):
     def forward_backward_step(
         self, input_dict: dict[str, torch.Tensor], labels: torch.Tensor
     ) -> torch.Tensor:
-        logger.info("wan forward_backward_step")
+        logger.info(f"wan forward_backward_step, input_dict={input_dict}")
         return torch.zeros((1,))
 
 

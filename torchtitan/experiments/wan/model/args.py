@@ -34,8 +34,9 @@ class WanModelArgs(BaseModelArgs):
 
         # TODO (zirui)
         # Calculate memory for debug
-        mem = sum(p.numel() * p.element_size() for p in model.parameters())
-        mem_buffer = sum(b.numel() * b.element_size() for b in model.buffers())
-        logger.info("wanmodel estimated memory", (mem + mem_buffer) / 1024**2, "MB")
+        mem_parameters = sum(p.numel() * p.element_size() for p in model.parameters())
+        mem_buffers = sum(b.numel() * b.element_size() for b in model.buffers())
+        logger.info("Wan DIT model estimated memory {} MB".format((
+            mem_parameters + mem_buffers) / 1024**2))
 
         return nparams, flops_per_token

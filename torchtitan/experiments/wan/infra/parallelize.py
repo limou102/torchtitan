@@ -28,6 +28,7 @@ def parallelize_wan(
         job_config: JobConfig object
     """
     
+    logger.info("parallelize_wan ...")
     if job_config.activation_checkpoint.mode != "none":
         apply_ac(model, job_config.activation_checkpoint)
 

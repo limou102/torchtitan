@@ -1,6 +1,7 @@
 from torchtitan.components.lr_scheduler import build_lr_schedulers
 from torchtitan.components.optimizer import build_optimizers
 from torchtitan.protocols.train_spec import TrainSpec
+from .wan_dataset import build_wan_dataloader
 from .wan_loss import build_wan_loss
 from .infra.parallelize import parallelize_wan
 from .model.args import WanModelArgs
@@ -41,10 +42,11 @@ def get_train_spec() -> TrainSpec:
         parallelize_fn=parallelize_wan,
         pipelining_fn=None,  # Pipeline parallel not implemented yet
         build_optimizers_fn=build_optimizers,
+        # TODO (limou)
+        # build scheduler from torchtitan base Trainer
         build_lr_schedulers_fn=build_lr_schedulers,
         build_dataloader_fn=build_wan_dataloader,
         build_tokenizer_fn=None,
-        # Wan uses T5/TextEncoder inside.
         build_loss_fn=build_wan_loss,
         state_dict_adapter=None,  # Implement adapter for checkpointing later
     )
