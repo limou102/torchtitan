@@ -1,0 +1,1 @@
+from .wan_video_encoder import WanVideoEncoder

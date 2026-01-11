@@ -5,6 +5,8 @@ from torchtitan.distributed import utils as dist_utils
 from torchtitan.train import main, Trainer
 from torchtitan.tools.logging import logger
 
+from .model.encoder import WanVideoEncoder
+
 class WanTrainer(Trainer):
     def __init__(self, job_config: JobConfig):
         super().__init__(job_config)
@@ -29,6 +31,8 @@ class WanTrainer(Trainer):
         )
 
         model_args = self.train_spec.model_args[job_config.model.flavor]
+
+        self.encoder = WanVideoEncoder(model_args)
 
     def forward_backward_step(
         self, input_dict: dict[str, torch.Tensor], labels: torch.Tensor

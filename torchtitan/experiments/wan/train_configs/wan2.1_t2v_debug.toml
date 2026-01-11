@@ -1,7 +1,7 @@
 [job]
 description = "Wan2.1 T2V Training debug"
 dump_folder = "./outputs/wan2.1_t2v_debug_vae_t5_load2"
-#custom_config_module = "torchtitan.experiments.wan.job_config"
+custom_config_module = "torchtitan.experiments.wan.job_config"
 
 [model]
 name = "wan"
@@ -23,10 +23,10 @@ enable_cpu_offload = false
 
 dataset = "vidgen-1m"
 
-#[encoder]
-#t5_checkpoint_path = "/root/zirui/models/Wan2.1-T2V-14B/models_t5_umt5-xxl-enc-bf16.pth"
-#vae_checkpoint_path = "/root/zirui/models/Wan2.1-T2V-14B/Wan2.1_VAE.pth"
-#vae_type = "wan_video_vae"
+[encoder]
+t5_checkpoint_path = "/root/zirui/models/Wan2.1-T2V-14B/models_t5_umt5-xxl-enc-bf16.pth"
+vae_checkpoint_path = "/root/zirui/models/Wan2.1-T2V-14B/Wan2.1_VAE.pth"
+vae_type = "wan_video_vae"
 
 [optimizer]
 name = "AdamW"

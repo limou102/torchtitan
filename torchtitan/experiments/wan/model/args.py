@@ -19,9 +19,18 @@ class WanModelArgs(BaseModelArgs):
     dit_text_dim: int = 4096
     dit_eps: float = 1.0e-6
 
+    # encoder arguments
+    t5_checkpoint_path: str = None
+    vae_checkpoint_path: str = None
+    vae_type: str = "wan_video_vae_38"
+
     def update_from_config(self, job_config, **kwargs) -> None:
         # TODO (limou)
         logger.info("update WanModelArgs from config.")
+        if hasattr(job_config, "encoder"):
+            self.vae_checkpoint_path = job_config.encoder.vae_checkpoint_path
+            self.vae_type = job_config.encoder.vae_type
+            self.t5_checkpoint_path = job_config.encoder.t5_checkpoint_path
         pass
 
     def get_nparams_and_flops(self, model, seq_len: int) -> tuple[int, float]:
