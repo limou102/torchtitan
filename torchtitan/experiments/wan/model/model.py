@@ -1,4 +1,5 @@
 import math
+import logging
 from typing import Optional, Tuple
 
 from einops import rearrange
@@ -8,9 +9,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from torchtitan.protocols import ModelProtocol
-from torchtitan.tools.logging import logger
 
 from .args import WanModelArgs
+
+logger = logging.getLogger(__name__)
 
 # TODO (limou)
 # use F.SDPA
@@ -345,10 +347,6 @@ class WanDitModel(nn.Module, ModelProtocol):
         )
         self.head = Head(self.hidden_size, self.out_channels, self.patch_size, self.eps)
 
-        # TODO (limou)
-        param = next(self.parameters())
-        logger.info(f"init DIT, current device={param.device}, dtype={param.dtype}")
-
     def patchify(
         self,
         x: torch.Tensor,
@@ -376,6 +374,10 @@ class WanDitModel(nn.Module, ModelProtocol):
         timestep: torch.Tensor,
         context: torch.Tensor,
     ):
+        # TODO (limou)
+        assert not x.requires_grad
+        assert not timestep.requires_grad
+        assert not context.requires_grad
         t = self.time_embedding(sinusoidal_embedding_1d(self.freq_dim, timestep).to(x.device))
         t_mod = self.time_projection(t).unflatten(1, (6, self.hidden_size))
         context = self.text_embedding(context)  # self.text_embedding is an adapter.
@@ -430,7 +432,7 @@ class WanDitModel(nn.Module, ModelProtocol):
                 nn.init.normal_(m.weight, std=0.02)
                 nn.init.zeros_(m.bias)
 
-        # Transformer blocks (Flux style)
+        # Transformer blocks
         for block in self.blocks:
             block.init_weights()
 

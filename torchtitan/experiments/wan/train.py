@@ -1,12 +1,15 @@
+import logging
+
 import torch
 
 from torchtitan.config import JobConfig, TORCH_DTYPE_MAP
-from torchtitan.distributed import utils as dist_utils
 from torchtitan.train import main, Trainer
-from torchtitan.tools.logging import logger
+from torchtitan.experiments.wan.debug_utils import print_tensor
 
 from .model.encoder import WanVideoEncoder
 from .scheduler import FlowMatchScheduler
+
+logger = logging.getLogger(__name__)
 
 class WanTrainer(Trainer):
     def __init__(self, job_config: JobConfig):
@@ -58,16 +61,26 @@ class WanTrainer(Trainer):
         if self.step_idx > 3:
             import sys
             sys.exit()
+        logger.info(f"step_idx = {self.step_idx}")
 
         input_dict = self.inputs_from_local[self.step_idx]
         input_dict["video"] = input_dict.pop("input")
         # -->
 
-        logger.info(f"wan forward_backward_step, input_dict={input_dict}")
+        # TODO (limou)
+        assert not input_dict["video"].requires_grad
+        assert not input_dict["input_ids"].requires_grad
+        assert not input_dict["attention_mask"].requires_grad
+        
+        # logger.info(f"wan forward_backward_step, input_dict={input_dict}")
         with torch.no_grad():
             model_inputs = self.encoder(input_dict, self.flow_match_scheduler)
-        logger.info(f"after encoder, model_inputs={model_inputs}")
+        # logger.info(f"after encoder, model_inputs={model_inputs}")
 
+        print_tensor(model_inputs["latents"], "latents")
+        print_tensor(model_inputs["context"], "context")
+        print_tensor(model_inputs["timestep"], "timestep")
+        
         with self.maybe_enable_amp:
             pred = self.model_parts[0](
                 x=model_inputs["latents"],
@@ -76,9 +89,11 @@ class WanTrainer(Trainer):
                 # TODO (limou)
                 # attention_mask ?
             )
-            
+            print_tensor(pred, "pred")
+
             loss = self.loss_fn(pred, model_inputs["training_target"],
                 model_inputs["timestep"], self.flow_match_scheduler)
+
         del pred
         loss.backward()
         return loss

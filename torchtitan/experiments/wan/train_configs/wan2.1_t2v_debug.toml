@@ -55,4 +55,6 @@ enable = false
 
 [debug]
 seed = 0
-#deterministic = true
+# TODO (limou)
+# loss is NaN when deterministic=true, may be Pytorch's bug
+deterministic = false

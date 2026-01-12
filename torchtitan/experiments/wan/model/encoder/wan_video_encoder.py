@@ -1,15 +1,18 @@
+import logging
 from typing import Any
 
 from einops import repeat
 import torch
 
-from torchtitan.tools.logging import logger
 from torchtitan.tools.utils import device_module
 
 from .wan_video_text_encoder import WanTextEncoder
 from .wan_video_vae import WanVideoVAE38, WanVideoVAE
 from ..args import WanModelArgs
 
+logger = logging.getLogger(__name__)
+
+# TODO (limou)
 PATTERN = "B C H W"
 
 class WanVideoEncoder(torch.nn.Module):
