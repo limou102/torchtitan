@@ -7,11 +7,11 @@ class FlowMatchScheduler:
         self,
         num_inference_steps=100,
         num_train_timesteps=1000,
-        shift=3.0,
+        shift=5.0,
         sigma_max=1.0,
-        sigma_min=0.003 / 1.002,
+        sigma_min=0.0,
         inverse_timesteps=False,
-        extra_one_step=False,
+        extra_one_step=True,
         reverse_sigmas=False,
         exponential_shift=False,
         exponential_shift_mu=None,
@@ -27,7 +27,9 @@ class FlowMatchScheduler:
         self.exponential_shift = exponential_shift
         self.exponential_shift_mu = exponential_shift_mu
         self.shift_terminal = shift_terminal
-        self.set_timesteps(num_inference_steps)
+
+        # TODO (limou)
+        self.set_timesteps(num_train_timesteps, training=True)
 
     def set_timesteps(
         self,

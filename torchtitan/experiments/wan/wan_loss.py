@@ -8,6 +8,7 @@ class WanLoss(nn.Module):
         super().__init__()
 
     def forward(self, pred, target, timestep, scheduler):
+        logger.info("compute wan loss ...")
         # TODO (limou)
         # check dtype
         loss = F.mse_loss(pred.float(), target.float(), reduction="mean")

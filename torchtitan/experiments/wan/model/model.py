@@ -85,15 +85,15 @@ class RMSNorm(nn.Module):
         self.eps = eps
         self.weight = nn.Parameter(torch.ones(dim))
 
-    def reset_parameters(self):
-        nn.init.ones_(self.weight)
-
     def norm(self, x):
         return x * torch.rsqrt(x.pow(2).mean(dim=-1, keepdim=True) + self.eps)
 
     def forward(self, x):
         dtype = x.dtype
         return self.norm(x.float()).to(dtype) * self.weight
+    
+    def init_weights(self):
+        nn.init.ones_(self.weight)
 
 
 class AttentionModule(nn.Module):
@@ -128,6 +128,15 @@ class SelfAttention(nn.Module):
         k = rope_apply(k, freqs, self.num_heads)
         x = self.attn(q, k, v)
         return self.o(x)
+    
+    def init_weights(self):
+        for m in [self.q, self.k, self.v, self.o]:
+            nn.init.xavier_uniform_(m.weight)
+            if m.bias is not None:
+                nn.init.zeros_(m.bias)
+
+        self.norm_q.init_weights()
+        self.norm_k.init_weights()
 
 
 class CrossAttention(nn.Module):
@@ -155,7 +164,30 @@ class CrossAttention(nn.Module):
         v = self.v(ctx)
         x = self.attn(q, k, v)
         return self.o(x)
+    
+    def init_weights(self):
+        for m in [self.q, self.k, self.v, self.o]:
+            nn.init.xavier_uniform_(m.weight)
+            if m.bias is not None:
+                nn.init.zeros_(m.bias)
 
+        nn.init.ones_(self.norm_q.weight)
+        nn.init.ones_(self.norm_k.weight)
+
+class FFN(nn.Module):
+    def __init__(self, hidden, intermediate):
+        super().__init__()
+        self.fc1 = nn.Linear(hidden, intermediate)
+        self.act = nn.GELU(approximate="tanh")
+        self.fc2 = nn.Linear(intermediate, hidden)
+
+    def forward(self, x):
+        return self.fc2(self.act(self.fc1(x)))
+
+    def init_weights(self):
+        for m in [self.fc1, self.fc2]:
+            nn.init.xavier_uniform_(m.weight)
+            nn.init.zeros_(m.bias)
 
 class GateModule(nn.Module):
     def __init__(self):
@@ -183,24 +215,9 @@ class DiTBlock(nn.Module):
         self.norm1 = nn.LayerNorm(hidden_size, eps=eps, elementwise_affine=False)
         self.norm2 = nn.LayerNorm(hidden_size, eps=eps, elementwise_affine=False)
         self.norm3 = nn.LayerNorm(hidden_size, eps=eps)
-        self.ffn = nn.Sequential(
-            nn.Linear(hidden_size, intermediate_size),
-            nn.GELU(approximate="tanh"),
-            nn.Linear(intermediate_size, hidden_size),
-        )
+        self.ffn = FFN(hidden_size, intermediate_size)
         self.modulation = nn.Parameter(torch.randn(1, 6, hidden_size) / hidden_size**0.5)
         self.gate = GateModule()
-
-    def reset_parameters(self):
-        # Initialize modulation
-        nn.init.normal_(self.modulation, mean=0.0, std=1.0 / self.hidden_size**0.5)
-        
-        # Recurse for submodules that might need it if they are custom, 
-        # but usually FSDP handles recursion or we can trust standard layers.
-        # For safety/completeness if FSDP relies on top-level call for this module:
-        for module in self.modules():
-            if module != self and hasattr(module, 'reset_parameters'):
-                module.reset_parameters()
 
     def forward(self, x, context, t_mod, freqs):
         has_seq = len(t_mod.shape) == 4
@@ -225,36 +242,21 @@ class DiTBlock(nn.Module):
         x = self.gate(x, gate_mlp, self.ffn(input_x))
         return x
 
+    def init_weights(self):
+        self.self_attn.init_weights()
+        self.cross_attn.init_weights()
+        self.ffn.init_weights()
 
-class MLP(torch.nn.Module):
-    def __init__(self, in_channels, out_channels, has_pos_emb=False):
-        super().__init__()
-        self.proj = torch.nn.Sequential(
-            nn.LayerNorm(in_channels),
-            nn.Linear(in_channels, in_channels),
-            nn.GELU(),
-            nn.Linear(in_channels, out_channels),
-            nn.LayerNorm(out_channels),
+        # LayerNorm
+        for n in [self.norm1, self.norm2, self.norm3]:
+            if hasattr(n, "weight") and n.weight is not None:
+                nn.init.ones_(n.weight)
+
+        nn.init.normal_(
+            self.modulation,
+            mean=0.0,
+            std=1.0 / math.sqrt(self.hidden_size),
         )
-        self.has_pos_emb = has_pos_emb
-        if has_pos_emb:
-            self.emb_pos = torch.nn.Parameter(torch.zeros((1, 514, 1280)))
-
-    def reset_parameters(self):
-        # Default init for Sequential layers is usually fine/handled.
-        if self.has_pos_emb:
-            nn.init.zeros_(self.emb_pos)
-        
-        # Explicitly reset Sequential submodules
-        for layer in self.proj:
-            if hasattr(layer, 'reset_parameters'):
-                layer.reset_parameters()
-
-    def forward(self, x):
-        if self.has_pos_emb:
-            x = x + self.emb_pos.to(dtype=x.dtype, device=x.device)
-        return self.proj(x)
-
 
 class Head(nn.Module):
     def __init__(
@@ -271,11 +273,6 @@ class Head(nn.Module):
         self.head = nn.Linear(hidden_size, out_channels * math.prod(patch_size))
         self.modulation = nn.Parameter(torch.randn(1, 2, hidden_size) / hidden_size**0.5)
 
-    def reset_parameters(self):
-        self.norm.reset_parameters()
-        self.head.reset_parameters()
-        nn.init.normal_(self.modulation, mean=0.0, std=1.0 / self.hidden_size**0.5)
-
     def forward(self, x, t_mod):
         if len(t_mod.shape) == 3:
             shift, scale = (
@@ -286,6 +283,19 @@ class Head(nn.Module):
             shift, scale = (self.modulation.to(dtype=t_mod.dtype, device=t_mod.device) + t_mod).chunk(2, dim=1)
             x = self.head(self.norm(x) * (1 + scale) + shift)
         return x
+    
+    def init_weights(self):
+        if hasattr(self.norm, "weight") and self.norm.weight is not None:
+            nn.init.ones_(self.norm.weight)
+
+        nn.init.zeros_(self.head.weight)
+        nn.init.zeros_(self.head.bias)
+
+        nn.init.normal_(
+            self.modulation,
+            mean=0.0,
+            std=1.0 / math.sqrt(self.hidden_size),
+        )
 
 class WanDitModel(nn.Module, ModelProtocol):
     def __init__(self, model_args: WanModelArgs):
@@ -302,8 +312,6 @@ class WanDitModel(nn.Module, ModelProtocol):
         self.patch_size = model_args.dit_patch_size
 
         # build the WanDit model
-        head_dim = self.hidden_size // self.num_heads
-        self.freqs = precompute_freqs_cis_3d(head_dim)
         self.patch_embedding = nn.Conv3d(
             self.in_channels,
             self.hidden_size,
@@ -337,6 +345,10 @@ class WanDitModel(nn.Module, ModelProtocol):
         )
         self.head = Head(self.hidden_size, self.out_channels, self.patch_size, self.eps)
 
+        # TODO (limou)
+        param = next(self.parameters())
+        logger.info(f"init DIT, current device={param.device}, dtype={param.dtype}")
+
     def patchify(
         self,
         x: torch.Tensor,
@@ -364,7 +376,7 @@ class WanDitModel(nn.Module, ModelProtocol):
         timestep: torch.Tensor,
         context: torch.Tensor,
     ):
-        t = self.time_embedding(sinusoidal_embedding_1d(self.freq_dim, timestep))
+        t = self.time_embedding(sinusoidal_embedding_1d(self.freq_dim, timestep).to(x.device))
         t_mod = self.time_projection(t).unflatten(1, (6, self.hidden_size))
         context = self.text_embedding(context)  # self.text_embedding is an adapter.
 
@@ -391,7 +403,36 @@ class WanDitModel(nn.Module, ModelProtocol):
         return x
 
     
-    def init_weights(self, buffer_device: torch.device | None = None) -> None:
-        #TODO (limou)
-        logger.info("dit init_weights ...")
-        pass
+    def init_weights(self, buffer_device=None):
+        
+        assert buffer_device is None, "cpu offloading is not supported for now"
+        self.freqs = precompute_freqs_cis_3d(self.hidden_size // self.num_heads)
+
+        # Patch embedding
+        nn.init.xavier_uniform_(self.patch_embedding.weight)
+        if self.patch_embedding.bias is not None:
+            nn.init.zeros_(self.patch_embedding.bias)
+
+        # Text embedding
+        for m in self.text_embedding:
+            if isinstance(m, nn.Linear):
+                nn.init.xavier_uniform_(m.weight)
+                nn.init.zeros_(m.bias)
+
+        # Time embedding
+        for m in self.time_embedding:
+            if isinstance(m, nn.Linear):
+                nn.init.normal_(m.weight, std=0.02)
+                nn.init.zeros_(m.bias)
+
+        for m in self.time_projection:
+            if isinstance(m, nn.Linear):
+                nn.init.normal_(m.weight, std=0.02)
+                nn.init.zeros_(m.bias)
+
+        # Transformer blocks (Flux style)
+        for block in self.blocks:
+            block.init_weights()
+
+        # Final head
+        self.head.init_weights()

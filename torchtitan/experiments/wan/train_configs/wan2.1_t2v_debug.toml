@@ -20,12 +20,11 @@ max_norm = 1.0
 mixed_precision_param = "bfloat16"
 steps = 10
 enable_cpu_offload = false
-
 dataset = "vidgen-1m"
 
 [encoder]
-t5_checkpoint_path = "/root/zirui/models/Wan2.1-T2V-14B/models_t5_umt5-xxl-enc-bf16.pth"
-vae_checkpoint_path = "/root/zirui/models/Wan2.1-T2V-14B/Wan2.1_VAE.pth"
+t5_checkpoint_path = "/data/models/Wan-AI/Wan2.1-T2V-14B/models_t5_umt5-xxl-enc-bf16.pth"
+vae_checkpoint_path = "/data/models/Wan-AI/Wan2.1-T2V-14B/Wan2.1_VAE.pth"
 vae_type = "wan_video_vae"
 
 [optimizer]
@@ -53,3 +52,7 @@ export_dtype = "float32"
 
 [validation]
 enable = false
+
+[debug]
+seed = 0
+#deterministic = true

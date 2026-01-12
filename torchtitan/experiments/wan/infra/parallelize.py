@@ -29,6 +29,9 @@ def parallelize_wan(
     """
     
     logger.info("parallelize_wan ...")
+    param = next(model.parameters())
+    logger.info(f"current device={param.device}, dtype={param.dtype}")
+
     if job_config.activation_checkpoint.mode != "none":
         apply_ac(model, job_config.activation_checkpoint)
 
@@ -76,6 +79,9 @@ def apply_fsdp(
     # whether to shard text_embed, time_embded, head ?
 
     fully_shard(model, **fsdp_config)
+
+    param = next(model.parameters())
+    logger.info(f"apply_fsdp done, current device={param.device}, dtype={param.dtype}")
 
 
 
