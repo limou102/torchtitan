@@ -494,7 +494,6 @@ class CheckpointManager:
         Returns:
             None
         """
-
         if self.enable_ft_dataloader_checkpoints:
             self._ft_save(curr_step)
 

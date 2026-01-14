@@ -6,6 +6,7 @@ from torchtitan.config import JobConfig, TORCH_DTYPE_MAP
 from torchtitan.train import main, Trainer
 from torchtitan.experiments.wan.debug_utils import print_tensor
 
+from .infra.parallelize import parallelize_encoders
 from .model.encoder import WanVideoEncoder
 from .scheduler import FlowMatchScheduler
 
@@ -27,12 +28,24 @@ class WanTrainer(Trainer):
 
         model_args = self.train_spec.model_args[job_config.model.flavor]
 
-        self.encoder = WanVideoEncoder(model_args)
-
         # TODO : (limou)
         # bfloat16 mixed precision
-        self.encoder = self.encoder.to(device=self.device, dtype=torch.float32).eval()
+        self.encoder = WanVideoEncoder(model_args).to(
+            device=self.device, dtype=torch.float32).eval().requires_grad_(False)
+        self.encoder = parallelize_encoders(
+            self.encoder,
+            parallel_dims=self.parallel_dims,
+            job_config=job_config)
+        
+        # TODO (limou)
+        # remove these checks
+        assert not self.encoder.training
+        assert not self.encoder.vae.training
+        assert not self.encoder.text_encoder.training
 
+        assert not next(self.encoder.vae.parameters()).requires_grad
+        assert not next(self.encoder.text_encoder.parameters()).requires_grad
+ 
         # TODO (limou)
         # flow_match_scheduler stateful load && save
         self.flow_match_scheduler = FlowMatchScheduler()
@@ -60,11 +73,14 @@ class WanTrainer(Trainer):
         self.step_idx += 1
         if self.step_idx > 3:
             import sys
+            logger.warning("force exit")
             sys.exit()
         logger.info(f"step_idx = {self.step_idx}")
 
         input_dict = self.inputs_from_local[self.step_idx]
         input_dict["video"] = input_dict.pop("input")
+
+        print_tensor(input_dict["video"], "video")
         # -->
 
         # TODO (limou)
@@ -77,9 +93,10 @@ class WanTrainer(Trainer):
             model_inputs = self.encoder(input_dict, self.flow_match_scheduler)
         # logger.info(f"after encoder, model_inputs={model_inputs}")
 
-        print_tensor(model_inputs["latents"], "latents")
-        print_tensor(model_inputs["context"], "context")
-        print_tensor(model_inputs["timestep"], "timestep")
+        if self.step_idx == 1:
+            print_tensor(model_inputs["latents"], "latents")
+            print_tensor(model_inputs["context"], "context")
+            print_tensor(model_inputs["timestep"], "timestep")
         
         with self.maybe_enable_amp:
             pred = self.model_parts[0](
@@ -89,7 +106,8 @@ class WanTrainer(Trainer):
                 # TODO (limou)
                 # attention_mask ?
             )
-            print_tensor(pred, "pred")
+            if self.step_idx == 1:
+                print_tensor(pred, "pred")
 
             loss = self.loss_fn(pred, model_inputs["training_target"],
                 model_inputs["timestep"], self.flow_match_scheduler)

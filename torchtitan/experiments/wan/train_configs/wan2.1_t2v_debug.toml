@@ -18,7 +18,7 @@ enable_wandb = false
 local_batch_size = 2
 max_norm = 1.0
 mixed_precision_param = "bfloat16"
-steps = 10
+steps = 3
 enable_cpu_offload = false
 dataset = "vidgen-1m"
 
@@ -47,8 +47,9 @@ mode = "none"
 
 [checkpoint]
 enable = false
-interval = 100
+interval = 2
 export_dtype = "float32"
+last_save_model_only = true
 
 [validation]
 enable = false

@@ -1,4 +1,5 @@
 
+import logging
 from typing import Any, Callable, Optional
 from dataclasses import asdict
 
@@ -11,10 +12,11 @@ import torch
 from torchtitan.config import JobConfig
 from torchtitan.components.tokenizer import BaseTokenizer
 from torchtitan.hf_datasets import DatasetConfig
-from torchtitan.tools.logging import logger
 from torchtitan.components.dataloader import ParallelAwareDataloader
 
 from .data_processor import VIDGEN1MDataProcessor
+
+logger = logging.getLogger(__name__)
 
 DATASETS = {
     # TODO (limou)
@@ -71,7 +73,7 @@ class WanDataset(IterableDataset, Stateful):
                 logger.info("run out of data")
                 break
             
-            logger.info(f"dataset iter, sample={sample}")
+            # logger.info(f"dataset iter, sample={sample}")
             inputs = self.data_processor(sample)
             self.sample_idx += 1
             yield inputs

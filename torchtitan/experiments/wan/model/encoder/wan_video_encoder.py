@@ -17,8 +17,6 @@ PATTERN = "B C H W"
 
 class WanVideoEncoder(torch.nn.Module):
     def __init__(self, model_args : WanModelArgs):
-        logger.info("WanPreProcessor init ...")
-        logger.info(f"model_args={model_args}")
         super().__init__()
         self.device = device_module.current_device()
 
@@ -32,7 +30,6 @@ class WanVideoEncoder(torch.nn.Module):
         self.time_division_remainder = 1
 
         self.load_model(model_args.vae_checkpoint_path, model_args.t5_checkpoint_path)
-        pass
 
     def load_model(self, vae_checkpoint_path : str = None, text_encoder_checkpoint_path : str = None):
         if vae_checkpoint_path:
@@ -40,22 +37,22 @@ class WanVideoEncoder(torch.nn.Module):
             vae_state_dict = torch.load(vae_checkpoint_path, map_location="cpu")
             # Check if we need to add 'model.' prefix
             if "model.encoder.conv1.weight" not in vae_state_dict and "encoder.conv1.weight" in vae_state_dict:
-                print("Detected missing 'model.' prefix in VAE checkpoint. Adding it...")
+                logger.info("Detected missing 'model.' prefix in VAE checkpoint. Adding it...")
                 new_vae_state_dict = {}
                 for k, v in vae_state_dict.items():
                     new_vae_state_dict[f"model.{k}"] = v
                 vae_state_dict = new_vae_state_dict
 
             self.vae.load_state_dict(vae_state_dict, strict=True, assign=True)
-            print("VAE loaded.")
+            logger.info("VAE loaded.")
 
         if text_encoder_checkpoint_path:
-            print(f"Loading T5 from {text_encoder_checkpoint_path}")
+            logger.info(f"Loading T5 from {text_encoder_checkpoint_path}")
             t5_state_dict = torch.load(
                 text_encoder_checkpoint_path, map_location="cpu"
             )
             self.text_encoder.load_state_dict(t5_state_dict, strict=True, assign=True)
-            print("T5 loaded.")
+            logger.info("T5 loaded.")
         pass
 
     def encode_prompt(self, input_ids, attetnion_mask, device="cuda"):
@@ -171,6 +168,8 @@ class WanVideoEncoder(torch.nn.Module):
 
         video = inputs["video"]
 
+        # TODO (limou)
+        # remove ununsed keys-values
         defaults = {
             "input_ids": None,
             "attention_mask": None,
@@ -191,7 +190,9 @@ class WanVideoEncoder(torch.nn.Module):
             "motion_bucket_id": None,
             "vace_video": None,
             "vace_video_mask": None,
-            "input_image": video.select(2, 0) if video.ndim == 5 else video[0],
+            # TODO (limou)
+            # "input_image": video.select(2, 0) if video.ndim == 5 else video[0],
+            "input_image" : None,
         }
         for k, v in defaults.items():
             inputs.setdefault(k, v)
@@ -273,6 +274,8 @@ class WanVideoEncoder(torch.nn.Module):
         # Sample random timestep
         max_timestep_boundary = int(1 * scheduler.num_train_timesteps)
         min_timestep_boundary = int(0 * scheduler.num_train_timesteps)
+        # TODO (limou)
+        # fix seed generator, deterministic mode
         timestep_id = torch.randint(min_timestep_boundary, max_timestep_boundary, (1,))
         timestep = scheduler.timesteps[timestep_id]
 

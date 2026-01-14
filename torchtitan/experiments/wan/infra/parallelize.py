@@ -3,6 +3,7 @@
 #
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
+from typing import Any
 
 import torch
 import torch.nn as nn
@@ -20,7 +21,6 @@ def parallelize_wan(
 ):
     """
     Apply parallelism to the Wan model using FSDP2 (fully_shard).
-    Mimics Flux parallelization strategy.
     
     Args:
         model: WanVideoModel wrapper (contains .model which is WanVideoForConditionalGeneration)
@@ -72,16 +72,19 @@ def apply_fsdp(
     if cpu_offload:
         fsdp_config["offload_policy"] = CPUOffloadPolicy()
 
+    fully_shard(model.patch_embedding, **fsdp_config)
+    fully_shard(model.text_embedding, **fsdp_config)
+    fully_shard(model.time_embedding, **fsdp_config)
+    fully_shard(model.time_projection, **fsdp_config)
+
     for block in model.blocks:
         fully_shard(block, **fsdp_config)
 
     # TODO (limou)
-    # whether to shard text_embed, time_embded, head ?
+    # whether to shard text_embed, time_embded, head , root model?
+    fully_shard(model.head, **fsdp_config)
 
     fully_shard(model, **fsdp_config)
-
-    param = next(model.parameters())
-    logger.info(f"apply_fsdp done, current device={param.device}, dtype={param.dtype}")
 
 
 
@@ -95,7 +98,6 @@ def apply_ac(model: nn.Module, ac_config):
 
     for layer_id, block in model.blocks.named_children():
         # TODO: Check config for mode (full vs selective vs offload?)
-        # Here keeping it simple like Flux: simple wrapper.
         # If offload is needed, use offload_wrapper.
         
         # Use ptd_checkpoint_wrapper
@@ -103,3 +105,48 @@ def apply_ac(model: nn.Module, ac_config):
         model.blocks.register_module(layer_id, block)
 
     logger.info(f"Applied {ac_config.mode} activation checkpointing to the Wan model")
+
+def parallelize_encoders(
+    model: nn.Module,
+    parallel_dims: ParallelDims,
+    job_config: JobConfig,
+):
+    if parallel_dims.dp_shard_enabled:  # apply FSDP or HSDP
+        names = (
+            ["dp_replicate", "fsdp"] if parallel_dims.dp_replicate_enabled else ["fsdp"]
+        )
+
+        mp_policy = MixedPrecisionPolicy(
+            param_dtype=TORCH_DTYPE_MAP[job_config.training.mixed_precision_param],
+            reduce_dtype=TORCH_DTYPE_MAP[job_config.training.mixed_precision_reduce],
+        )
+        dp_mesh = parallel_dims.get_mesh(names)
+        fsdp_config: dict[str, Any] = {
+            "mesh": dp_mesh,
+            "mp_policy": mp_policy,
+        }
+        if job_config.training.enable_cpu_offload:
+            fsdp_config["offload_policy"] = CPUOffloadPolicy()
+
+        # TODO (limou)
+        # for now only shard text encoder
+        text_encoder = model.text_encoder
+
+        fully_shard(text_encoder.token_embedding, **fsdp_config)
+
+        if text_encoder.pos_embedding is not None:
+            fully_shard(text_encoder.pos_embedding, **fsdp_config)
+
+        for block in text_encoder.blocks:
+            fully_shard(block, **fsdp_config)
+        
+        fully_shard(text_encoder.norm, **fsdp_config)
+
+        fully_shard(text_encoder, **fsdp_config)
+
+        if parallel_dims.dp_replicate_enabled:
+            logger.info("Applied HSDP to the text_encoder model")
+        else:
+            logger.info("Applied FSDP to the text_encoder model")
+
+    return model

@@ -1,15 +1,18 @@
 
 
-import torch
-import numpy as np
+import logging
 from typing import Any, Dict, List, Optional, Union
+
+import numpy as np
+
+import torch
 
 from transformers import AutoTokenizer
 from transformers.image_utils import ImageInput
 from transformers.image_processing_utils import BaseImageProcessor
 from transformers.utils import TensorType
 
-from torchtitan.tools.logging import logger
+logger = logging.getLogger(__name__)
 
 class VideoProcessor(BaseImageProcessor):
     """
@@ -209,9 +212,9 @@ class VideoProcessor(BaseImageProcessor):
     
 class VIDGEN1MDataProcessor:
     def __init__(self):
-        self.tokenizer = AutoTokenizer.from_pretrained("google/umt5-xxl")
+        self.text_tokenizer = AutoTokenizer.from_pretrained("google/umt5-xxl")
         self.video_processor = VideoProcessor()
 
     def __call__(self, inputs : dict[str, Any]) -> Dict[str, Any]:
-        logger.info(f"VIDGEN1MDataProcessor.__call__, inputs={inputs}")
+        # logger.info(f"VIDGEN1MDataProcessor.__call__, inputs={inputs}")
         return torch.zeros((3,3))

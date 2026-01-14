@@ -29,6 +29,7 @@ class FlowMatchScheduler:
         self.shift_terminal = shift_terminal
 
         # TODO (limou)
+        # check whether we need to save flow_match_scheduler's state ?
         self.set_timesteps(num_train_timesteps, training=True)
 
     def set_timesteps(
