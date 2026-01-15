@@ -4,11 +4,11 @@ import torch
 
 from torchtitan.config import JobConfig, TORCH_DTYPE_MAP
 from torchtitan.train import main, Trainer
-from torchtitan.experiments.wan.debug_utils import print_tensor
 
-from .infra.parallelize import parallelize_encoders
-from .model.encoder import WanVideoEncoder
-from .scheduler import FlowMatchScheduler
+from torchtitan.experiments.wan.debug_utils import print_tensor
+from torchtitan.experiments.wan.infra.parallelize import parallelize_encoders
+from torchtitan.experiments.wan.model.encoder import WanVideoEncoder
+from torchtitan.experiments.wan.flow_match_scheduler import FlowMatchScheduler
 
 logger = logging.getLogger(__name__)
 
@@ -49,39 +49,38 @@ class WanTrainer(Trainer):
         # TODO (limou)
         # flow_match_scheduler stateful load && save
         self.flow_match_scheduler = FlowMatchScheduler()
-        
-        pass
 
     def forward_backward_step(
         self, input_dict: dict[str, torch.Tensor], labels: torch.Tensor
     ) -> torch.Tensor:
+        # logger.info("forward_backward_step, input_dict={}, labels={}".format(input_dict, labels))
         
         # TODO (limou)
         # < -- load input_dict from local file, dataset hasn't been implemented now
-        if not hasattr(self, "inputs_from_local"):
-            self.inputs_from_local = torch.load("/data/limou/common_modules/fake_inputs_wan.pt")
-            def move_to_device(x):
-                if torch.is_tensor(x):
-                    return x.to(self.device)
-                if isinstance(x, dict):
-                    return {k: move_to_device(v) for k, v in x.items()}
-                return x
-            self.inputs_from_local = move_to_device(self.inputs_from_local)
+        # if not hasattr(self, "inputs_from_local"):
+        #     self.inputs_from_local = torch.load("/data/limou/common_modules/fake_inputs_wan.pt")
+        #     def move_to_device(x):
+        #         if torch.is_tensor(x):
+        #             return x.to(self.device)
+        #         if isinstance(x, dict):
+        #             return {k: move_to_device(v) for k, v in x.items()}
+        #         return x
+        #     self.inputs_from_local = move_to_device(self.inputs_from_local)
             
-            self.step_idx = 0
+        #     self.step_idx = 0
         
-        self.step_idx += 1
-        if self.step_idx > 3:
-            import sys
-            logger.warning("force exit")
-            sys.exit()
-        logger.info(f"step_idx = {self.step_idx}")
+        # self.step_idx += 1
+        # if self.step_idx > 3:
+        #     import sys
+        #     logger.warning("force exit")
+        #     sys.exit()
+        # logger.info(f"step_idx = {self.step_idx}")
 
-        input_dict = self.inputs_from_local[self.step_idx]
-        input_dict["video"] = input_dict.pop("input")
-
-        print_tensor(input_dict["video"], "video")
+        # input_dict = self.inputs_from_local[self.step_idx]
+        # input_dict["video"] = input_dict.pop("input")
         # -->
+
+        print_tensor(input_dict["video"], "x video")
 
         # TODO (limou)
         assert not input_dict["video"].requires_grad
@@ -93,10 +92,9 @@ class WanTrainer(Trainer):
             model_inputs = self.encoder(input_dict, self.flow_match_scheduler)
         # logger.info(f"after encoder, model_inputs={model_inputs}")
 
-        if self.step_idx == 1:
-            print_tensor(model_inputs["latents"], "latents")
-            print_tensor(model_inputs["context"], "context")
-            print_tensor(model_inputs["timestep"], "timestep")
+        print_tensor(model_inputs["latents"], "latents")
+        print_tensor(model_inputs["context"], "context")
+        print_tensor(model_inputs["timestep"], "timestep")
         
         with self.maybe_enable_amp:
             pred = self.model_parts[0](
@@ -106,8 +104,8 @@ class WanTrainer(Trainer):
                 # TODO (limou)
                 # attention_mask ?
             )
-            if self.step_idx == 1:
-                print_tensor(pred, "pred")
+
+            print_tensor(pred, "pred")
 
             loss = self.loss_fn(pred, model_inputs["training_target"],
                 model_inputs["timestep"], self.flow_match_scheduler)

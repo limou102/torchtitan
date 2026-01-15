@@ -1,9 +1,9 @@
 
 import logging
-from typing import Any, Callable, Optional
+from typing import Dict, Optional, Sequence
 from dataclasses import asdict
 
-from datasets import load_dataset, Dataset
+from datasets import Dataset
 from datasets.distributed import split_dataset_by_node
 from torch.distributed.checkpoint.stateful import Stateful
 from torch.utils.data import IterableDataset
@@ -14,18 +14,12 @@ from torchtitan.components.tokenizer import BaseTokenizer
 from torchtitan.hf_datasets import DatasetConfig
 from torchtitan.components.dataloader import ParallelAwareDataloader
 
-from .data_processor import VIDGEN1MDataProcessor
+from .data_processor import get_dataset_config_vidgen1m
 
 logger = logging.getLogger(__name__)
 
 DATASETS = {
-    # TODO (limou)
-    # use remote dataset
-    "vidgen-1m": DatasetConfig(
-        path = "/data/limou/VIDGEN-1M/meta_data.json",
-        loader = lambda path: load_dataset("json", data_files=path, split="train"),
-        sample_processor = VIDGEN1MDataProcessor(),
-    ),
+    "vidgen-1m": get_dataset_config_vidgen1m(),
 }
 
 def _validate_dataset(dataset_name : str, dataset_path: Optional[str] = None):
@@ -34,7 +28,7 @@ def _validate_dataset(dataset_name : str, dataset_path: Optional[str] = None):
             f"Dataset {dataset_name} is not supported. "
             f"Supported datasets are: {list(DATASETS.keys())}"
         )
-    config = DATASETS[dataset_name]
+    config : DatasetConfig = DATASETS[dataset_name]
     path = dataset_path or config.path
     logger.info(f"Preparing {dataset_name} dataset from {path}")
     return path, config.loader, config.sample_processor
@@ -50,6 +44,7 @@ class WanDataset(IterableDataset, Stateful):
     ) -> None:
         data_path, data_loader, data_processor = _validate_dataset(dataset_name.lower(), dataset_path)
 
+        self.data_path = data_path
         self.data_processor = data_processor
         ds = data_loader(data_path)
         self.data = split_dataset_by_node(ds, dp_rank, dp_world_size)
@@ -61,7 +56,6 @@ class WanDataset(IterableDataset, Stateful):
                 return iter([])
             else:
                 return iter(self.data.skip(self.sample_idx))
-
         return iter(self.data)
 
     def __iter__(self):
@@ -73,10 +67,13 @@ class WanDataset(IterableDataset, Stateful):
                 logger.info("run out of data")
                 break
             
-            # logger.info(f"dataset iter, sample={sample}")
+            logger.info(f"dataset iter, sample_idx={self.sample_idx}, sample={sample}")
             inputs = self.data_processor(sample)
             self.sample_idx += 1
             yield inputs
+
+    def get_collator(self):
+        return self.data_processor.get_collator()
 
     def load_state_dict(self, state_dict):
         if isinstance(self.data, Dataset):
@@ -90,18 +87,20 @@ class WanDataset(IterableDataset, Stateful):
             return {"sample_idx": self.sample_idx}
         else:
             return {"data": self.data.state_dict()}
+        
 
 
-class WanCollator:
-    def __init__(self):
-        pass
+class WanCollator():
+    def __init__(self, collator):
+        self.collator = collator
 
-    def __call__(self, batch):
-        logger.info("wan collator ...")
-        input_dict = {"input": batch}
+    def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
+        batch_size = len(instances)
+        batch_out = self.collator(instances)
+
         # Create dummy labels because diffusion target is computed in forward
-        labels = torch.zeros(1)
-        return input_dict, labels
+        labels = torch.zeros((batch_size, ))
+        return batch_out, labels
 
 def build_wan_dataloader(
     dp_world_size: int,
@@ -124,9 +123,8 @@ def build_wan_dataloader(
     dataloader_kwargs = {
         **asdict(job_config.training.dataloader),
         "batch_size": job_config.training.local_batch_size,
-        "collate_fn" : WanCollator(),
+        "collate_fn" : WanCollator(ds.get_collator()),
     }
-
 
     return ParallelAwareDataloader(
         dataset=ds,

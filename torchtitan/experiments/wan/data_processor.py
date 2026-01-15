@@ -1,19 +1,101 @@
 
-
+import os
 import logging
-from typing import Any, Dict, List, Optional, Union
+import collections
+from typing import Any, Dict, List, Optional, Union, Sequence
 
 import numpy as np
 
 import torch
 
+from PIL import Image
+
+# TODO (limou)
+# check if transformers library is needed
 from transformers import AutoTokenizer
 from transformers.image_utils import ImageInput
 from transformers.image_processing_utils import BaseImageProcessor
 from transformers.utils import TensorType
 
+from datasets import load_dataset
+
+from torchtitan.hf_datasets import DatasetConfig
+
 logger = logging.getLogger(__name__)
 
+def get_dataset_config_vidgen1m():
+    # TODO (limou)
+    # use remote streaming dataset
+    return DatasetConfig(
+            path = "/data/limou/VIDGEN-1M/meta_data.json",
+            loader = lambda path: load_dataset("json", data_files=path, split="train"),
+            sample_processor = VIDGEN1MDataProcessor(
+                data_folder="/data/limou/VIDGEN-1M/",
+                text_tokenizer_id = "google/umt5-xxl",
+                num_frames=81),
+        )
+
+class VisionCollator:
+
+    def __init__(self, tokenizer):
+        self.tokenizer = tokenizer
+
+    def _pad_sequence(self, input_ids, batch_first, padding_value):
+        if self.tokenizer.padding_side == "left":
+            input_ids = [torch.flip(_input_ids, [0]) for _input_ids in input_ids]
+        input_ids = torch.nn.utils.rnn.pad_sequence(input_ids, batch_first=batch_first, padding_value=padding_value)
+        if self.tokenizer.padding_side == "left":
+            input_ids = torch.flip(input_ids, [1])
+        return input_ids
+
+    def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
+        if isinstance(instances[0], list):
+            instances = [inst for instance in instances for inst in instance]
+            
+        inputs = collections.defaultdict(list)
+        for instance in instances:
+            for key, values in instance.items():
+                inputs[key].append(values)
+
+        batched_inputs = {}
+        if "input_ids" in inputs.keys():
+            input_ids = inputs.pop("input_ids")
+            input_ids = self._pad_sequence(
+                input_ids,
+                batch_first=True,
+                padding_value=self.tokenizer.pad_token_id,
+            )
+            batched_inputs["input_ids"] = input_ids
+        
+        # TODO (limou)
+        # remove this
+        if "labels" in inputs.keys():
+            labels = inputs.pop("labels")
+            labels = self._pad_sequence(
+                labels,
+                batch_first=True,
+                padding_value=-100,
+            )
+            batched_inputs["labels"] = labels
+
+        if "attention_mask" in inputs.keys():
+            inputs.pop("attention_mask")
+
+        attention_mask = input_ids.ne(self.tokenizer.pad_token_id).long()
+        batched_inputs["attention_mask"] = attention_mask
+
+        # for the other keys
+        for key, values in inputs.items():
+            # Handle scalar/boolean values ( use_audio_in_video)
+            if isinstance(values[0], bool) or (
+                isinstance(values[0], (int, float)) and not isinstance(values[0], torch.Tensor)
+            ):
+                batched_inputs[key] = values[0]
+            else:
+                batched_inputs[key] = torch.stack(values, dim=0)
+
+        return batched_inputs
+    
 class VideoProcessor(BaseImageProcessor):
     """
     Image/Video processor for WanVideo models.
@@ -64,7 +146,25 @@ class VideoProcessor(BaseImageProcessor):
         from PIL import Image as PILImage
 
         image = PILImage.fromarray(image.astype(np.uint8))
-        image = image.resize((size["width"], size["height"]), PILImage.LANCZOS)
+        # TODO: Here, we align with DiffSynth's resize logic for debugging(may remove in the future)
+        if os.getenv("ALIGN_WITH_DIFFSYNTH") == "1":
+            # Match DiffSynth logic: scale based on max dimension ratio
+            width, height = image.size
+            target_width = size["width"]
+            target_height = size["height"]
+            
+            scale = max(target_width / width, target_height / height)
+            new_width = round(width * scale)
+            new_height = round(height * scale)
+            
+            from torchvision.transforms import functional as F
+            from torchvision.transforms import InterpolationMode
+            
+            # DiffSynth uses torchvision.transforms.resize with BILINEAR
+            # We must use F.resize to match exactly (antialias behavior etc)
+            image = F.resize(image, (new_height, new_width), interpolation=InterpolationMode.BILINEAR)
+        else:
+            image = image.resize((size["width"], size["height"]), PILImage.LANCZOS)
         return np.array(image)
 
     def center_crop(
@@ -108,6 +208,7 @@ class VideoProcessor(BaseImageProcessor):
         image_mean: Optional[Union[float, List[float]]] = None,
         image_std: Optional[Union[float, List[float]]] = None,
         do_convert_rgb: Optional[bool] = None,
+        num_frames: Optional[int] = None,
         return_tensors: Optional[Union[str, TensorType]] = None,
         **kwargs,
     ) -> Dict[str, Any]:
@@ -199,22 +300,108 @@ class VideoProcessor(BaseImageProcessor):
         # Stack frames for video
         processed_images = np.stack(processed_images, axis=0)  # B, T, H, W, C
 
+        # Temporal Handling (Interpolate or Truncate)
+        if num_frames is not None:
+             current_frames = processed_images.shape[1]
+             if current_frames > num_frames:
+                 logger.info(f"Truncating video frames from {current_frames} to {num_frames}")
+                 processed_images = processed_images[:, :num_frames, ...]
+             elif current_frames < num_frames:
+                 logger.info(f"Interpolating video frames from {current_frames} to {num_frames}")
+                 # Interpolate requires (B, C, T, H, W) or (B, C, H, W) - we have (B, T, H, W, C)
+                 # Permute to (B, C, T, H, W) for interpolate
+                 vid_tensor = torch.from_numpy(processed_images).permute(0, 4, 1, 2, 3)
+                 
+                 # Interpolate
+                 vid_tensor = torch.nn.functional.interpolate(
+                     vid_tensor, 
+                     size=(num_frames, vid_tensor.shape[3], vid_tensor.shape[4]), 
+                     mode='trilinear', 
+                     align_corners=False
+                 )
+                 
+                 # Permute back to (B, T, H, W, C) and convert to numpy
+                 processed_images = vid_tensor.permute(0, 2, 3, 4, 1).numpy()
+
         # Convert to tensor if requested
         if return_tensors == "pt":
             processed_images = torch.from_numpy(processed_images)
-            # Rearrange to (C, T, H, W) for video
-            # if len(processed_images.shape) == 4:  # (T, H, W, C)
-            #     processed_images = processed_images.permute(3, 0, 1, 2)
+            # Rearrange to (B, C, T, H, W) for video (since input was B, T, H, W, C)
+            if processed_images.ndim == 5:
+                processed_images = processed_images.permute(0, 4, 1, 2, 3)
+            elif processed_images.ndim == 4:
+                # (T, H, W, C) -> (C, T, H, W) if it was list of frames
+                processed_images = processed_images.permute(3, 0, 1, 2)
             # Add batch dimension
             # processed_images = processed_images.unsqueeze(0)
 
         return {"pixel_values": processed_images}
     
 class VIDGEN1MDataProcessor:
-    def __init__(self):
-        self.text_tokenizer = AutoTokenizer.from_pretrained("google/umt5-xxl")
+    def __init__(self,
+        data_folder : str,
+        text_tokenizer_id : str,
+        num_frames : int):
+        self.data_folder = data_folder
+        self.num_frames = num_frames
+        self.text_tokenizer = AutoTokenizer.from_pretrained(text_tokenizer_id)
         self.video_processor = VideoProcessor()
 
     def __call__(self, inputs : dict[str, Any]) -> Dict[str, Any]:
-        # logger.info(f"VIDGEN1MDataProcessor.__call__, inputs={inputs}")
-        return torch.zeros((3,3))
+        """
+        sample of inputs :
+        {
+            'prompt': 'The video shows a man fishing on a boat...',
+            'video': '4c4gus833J4-Scene-0107.mp4',
+        }
+        """
+        prompt = inputs.get("prompt", "")
+        video_path = os.path.join(self.data_folder, inputs["video"])
+        video_frames = self._load_video(video_path)
+
+        text_inputs = self.text_tokenizer(
+            prompt,
+            return_tensors="pt",
+            padding="max_length",
+            truncation=True,
+            max_length=512,
+        )
+        video_inputs = self.video_processor.preprocess(
+            video_frames,
+            num_frames = self.num_frames,
+            return_tensors = "pt",
+        )
+        pixel_values = video_inputs["pixel_values"]
+
+        outputs = {
+            "video": pixel_values.squeeze(0),  # C, T, H, W
+            "input_ids": text_inputs["input_ids"].squeeze(0),
+            "attention_mask": text_inputs["attention_mask"].squeeze(0),
+            "num_frames": pixel_values.shape[2],  # (1, C, T, H, W) -> T used shape[2]
+        }
+        return outputs
+
+    def _load_video(self, video_path : str):
+        # TODO (limou)
+        # multiple video decode libraries
+        return self._load_video_imageio(video_path)
+
+    def _load_video_imageio(self, video_path : str):
+        import imageio
+
+        reader = imageio.get_reader(video_path)
+        total_frames = int(reader.count_frames())
+
+        actual_nframes = min(self.num_frames, total_frames)
+        valid_nframes = ((actual_nframes - 1) // 4) * 4 + 1 if actual_nframes > 1 else 1
+
+        frames = []
+        for i, frame in enumerate(reader):
+            if i >= valid_nframes:
+                break
+            frames.append(frame)
+
+        return np.array(frames)
+
+    def get_collator(self):
+        return VisionCollator(self.text_tokenizer)

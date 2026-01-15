@@ -275,9 +275,11 @@ class WanVideoEncoder(torch.nn.Module):
         max_timestep_boundary = int(1 * scheduler.num_train_timesteps)
         min_timestep_boundary = int(0 * scheduler.num_train_timesteps)
         # TODO (limou)
-        # fix seed generator, deterministic mode
+        # check whether differnet dp rank should use the same timestep_id when setting seed
         timestep_id = torch.randint(min_timestep_boundary, max_timestep_boundary, (1,))
         timestep = scheduler.timesteps[timestep_id]
+        # logger.info("timestep_id={}, timestep={}, len(scheduler.timesteps)={}".format(
+        #     timestep_id, timestep, len(scheduler.timesteps),))
 
         inputs["timestep"] = timestep
         
