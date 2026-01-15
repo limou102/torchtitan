@@ -15,7 +15,7 @@ class WanLoss(nn.Module):
         return loss * scheduler.training_weight(timestep)
 
 def build_wan_loss(job_config, parallel_dims, ft_manager):
-    logger.info("build wan loss ..")
+    # logger.info("build wan loss ..")
     # TODO (limou)
     # set scheduler arguments in config file
     return WanLoss()

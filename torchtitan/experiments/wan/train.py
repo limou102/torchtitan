@@ -30,7 +30,7 @@ class WanTrainer(Trainer):
 
         # TODO : (limou)
         # bfloat16 mixed precision
-        self.encoder = WanVideoEncoder(model_args).to(
+        self.encoder = WanVideoEncoder(job_config).to(
             device=self.device, dtype=torch.float32).eval().requires_grad_(False)
         self.encoder = parallelize_encoders(
             self.encoder,
@@ -49,6 +49,9 @@ class WanTrainer(Trainer):
         # TODO (limou)
         # flow_match_scheduler stateful load && save
         self.flow_match_scheduler = FlowMatchScheduler()
+        logger.info(f"job_config={job_config}")
+        # end __init__
+
 
     def forward_backward_step(
         self, input_dict: dict[str, torch.Tensor], labels: torch.Tensor
@@ -80,8 +83,6 @@ class WanTrainer(Trainer):
         # input_dict["video"] = input_dict.pop("input")
         # -->
 
-        print_tensor(input_dict["video"], "x video")
-
         # TODO (limou)
         assert not input_dict["video"].requires_grad
         assert not input_dict["input_ids"].requires_grad
@@ -92,9 +93,9 @@ class WanTrainer(Trainer):
             model_inputs = self.encoder(input_dict, self.flow_match_scheduler)
         # logger.info(f"after encoder, model_inputs={model_inputs}")
 
-        print_tensor(model_inputs["latents"], "latents")
-        print_tensor(model_inputs["context"], "context")
-        print_tensor(model_inputs["timestep"], "timestep")
+        # print_tensor(model_inputs["latents"], "latents")
+        # print_tensor(model_inputs["context"], "context")
+        # print_tensor(model_inputs["timestep"], "timestep")
         
         with self.maybe_enable_amp:
             pred = self.model_parts[0](
@@ -105,7 +106,7 @@ class WanTrainer(Trainer):
                 # attention_mask ?
             )
 
-            print_tensor(pred, "pred")
+            # print_tensor(pred, "pred")
 
             loss = self.loss_fn(pred, model_inputs["training_target"],
                 model_inputs["timestep"], self.flow_match_scheduler)

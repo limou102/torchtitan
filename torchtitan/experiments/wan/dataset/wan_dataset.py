@@ -1,6 +1,6 @@
 
 import logging
-from typing import Dict, Optional, Sequence
+from typing import Dict, Optional, Sequence, Callable
 from dataclasses import asdict
 
 from datasets import Dataset
@@ -14,21 +14,21 @@ from torchtitan.components.tokenizer import BaseTokenizer
 from torchtitan.hf_datasets import DatasetConfig
 from torchtitan.components.dataloader import ParallelAwareDataloader
 
-from .data_processor import get_dataset_config_vidgen1m
+from .data_processors import get_dataset_config_vidgen1m
 
 logger = logging.getLogger(__name__)
 
-DATASETS = {
-    "vidgen-1m": get_dataset_config_vidgen1m(),
+DATASETS : Dict[str, Callable[[JobConfig], DatasetConfig]]= {
+    "vidgen-1m": get_dataset_config_vidgen1m,
 }
 
-def _validate_dataset(dataset_name : str, dataset_path: Optional[str] = None):
+def _validate_dataset(job_config : JobConfig, dataset_name : str, dataset_path: Optional[str] = None):
     if dataset_name not in DATASETS:
         raise ValueError(
             f"Dataset {dataset_name} is not supported. "
             f"Supported datasets are: {list(DATASETS.keys())}"
         )
-    config : DatasetConfig = DATASETS[dataset_name]
+    config : DatasetConfig = DATASETS[dataset_name](job_config)
     path = dataset_path or config.path
     logger.info(f"Preparing {dataset_name} dataset from {path}")
     return path, config.loader, config.sample_processor
@@ -42,7 +42,8 @@ class WanDataset(IterableDataset, Stateful):
         dp_rank: int = 0,
         dp_world_size: int = 1,
     ) -> None:
-        data_path, data_loader, data_processor = _validate_dataset(dataset_name.lower(), dataset_path)
+        data_path, data_loader, data_processor = _validate_dataset(job_config,
+            dataset_name.lower(), dataset_path)
 
         self.data_path = data_path
         self.data_processor = data_processor
@@ -67,7 +68,7 @@ class WanDataset(IterableDataset, Stateful):
                 logger.info("run out of data")
                 break
             
-            logger.info(f"dataset iter, sample_idx={self.sample_idx}, sample={sample}")
+            # logger.info(f"dataset iter, sample_idx={self.sample_idx}, sample={sample}")
             inputs = self.data_processor(sample)
             self.sample_idx += 1
             yield inputs

@@ -1,0 +1,1 @@
+from .vidgen1m_data_processor import get_dataset_config_vidgen1m

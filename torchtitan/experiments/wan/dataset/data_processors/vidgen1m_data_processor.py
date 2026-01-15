@@ -19,16 +19,20 @@ from transformers.utils import TensorType
 
 from datasets import load_dataset
 
+from torchtitan.config import JobConfig
 from torchtitan.hf_datasets import DatasetConfig
 
 logger = logging.getLogger(__name__)
 
-def get_dataset_config_vidgen1m():
+def get_dataset_config_vidgen1m(job_config : JobConfig) -> DatasetConfig:
     # TODO (limou)
     # use remote streaming dataset
     return DatasetConfig(
             path = "/data/limou/VIDGEN-1M/meta_data.json",
             loader = lambda path: load_dataset("json", data_files=path, split="train"),
+
+            # TODO (limou)
+            # use job_config as arguments to pass more data processor parameters
             sample_processor = VIDGEN1MDataProcessor(
                 data_folder="/data/limou/VIDGEN-1M/",
                 text_tokenizer_id = "google/umt5-xxl",
@@ -384,7 +388,26 @@ class VIDGEN1MDataProcessor:
     def _load_video(self, video_path : str):
         # TODO (limou)
         # multiple video decode libraries
-        return self._load_video_imageio(video_path)
+        return self._load_video_decord(video_path)
+        # return self._load_video_imageio(video_path)
+
+    def _load_video_decord(self, video_path : str):
+        from decord import VideoReader, cpu
+
+        vr = VideoReader(video_path, ctx=cpu(0), num_threads=1)
+
+        total_frames = len(vr)
+        # Enforce VAE divisibility: (n - 1) % 4 == 0
+        actual_nframes = min(self.num_frames, total_frames)
+        
+        valid_nframes = ((actual_nframes - 1) // 4) * 4 + 1 if actual_nframes > 1 else 1
+            
+        uniform_sampled_frames = np.linspace(0, total_frames - 1, valid_nframes, dtype=int)
+            
+        frame_idx = uniform_sampled_frames.tolist()
+        spare_frames = vr.get_batch(frame_idx).asnumpy()
+        
+        return spare_frames
 
     def _load_video_imageio(self, video_path : str):
         import imageio
@@ -400,7 +423,6 @@ class VIDGEN1MDataProcessor:
             if i >= valid_nframes:
                 break
             frames.append(frame)
-
         return np.array(frames)
 
     def get_collator(self):

@@ -7,6 +7,8 @@ CONFIG_FILE=${CURDIR}/train_configs/wan2.1_t2v_debug.toml
 export PYTHONPATH=$(realpath "${CURDIR}/../../../")
 echo "PYTHONPATH : ${PYTHONPATH}"
 
+export PYTHONUNBUFFERED=1
+
 export CUDA_VISIBLE_DEVICES=4,5,6,7
 NNODES=1
 NPROC_PER_NODE=1

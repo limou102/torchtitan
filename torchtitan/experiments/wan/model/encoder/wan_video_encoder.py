@@ -5,10 +5,10 @@ from einops import repeat
 import torch
 
 from torchtitan.tools.utils import device_module
+from torchtitan.config import JobConfig
 
 from .wan_video_text_encoder import WanTextEncoder
 from .wan_video_vae import WanVideoVAE38, WanVideoVAE
-from ..args import WanModelArgs
 
 logger = logging.getLogger(__name__)
 
@@ -16,11 +16,13 @@ logger = logging.getLogger(__name__)
 PATTERN = "B C H W"
 
 class WanVideoEncoder(torch.nn.Module):
-    def __init__(self, model_args : WanModelArgs):
+    def __init__(self, job_config : JobConfig):
         super().__init__()
         self.device = device_module.current_device()
 
-        self.vae = WanVideoVAE() if model_args.vae_type == "wan_video_vae" else WanVideoVAE38()
+        encoder_config = job_config.encoder
+
+        self.vae = WanVideoVAE() if encoder_config.vae_type == "wan_video_vae" else WanVideoVAE38()
         self.text_encoder = WanTextEncoder()
 
         # The following parameters are used for shape check.
@@ -29,7 +31,7 @@ class WanVideoEncoder(torch.nn.Module):
         self.time_division_factor = 4
         self.time_division_remainder = 1
 
-        self.load_model(model_args.vae_checkpoint_path, model_args.t5_checkpoint_path)
+        self.load_model(encoder_config.vae_checkpoint_path, encoder_config.t5_checkpoint_path)
 
     def load_model(self, vae_checkpoint_path : str = None, text_encoder_checkpoint_path : str = None):
         if vae_checkpoint_path:
