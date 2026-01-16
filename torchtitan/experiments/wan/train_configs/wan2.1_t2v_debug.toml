@@ -1,6 +1,6 @@
 [job]
 description = "Wan2.1 T2V Training debug"
-dump_folder = "./outputs/wan2.1_t2v_debug_vae_t5_load2"
+dump_folder = "./outputs/wan2.1_t2v_debug"
 custom_config_module = "torchtitan.experiments.wan.job_config"
 
 [model]
@@ -18,12 +18,12 @@ enable_wandb = false
 local_batch_size = 2
 max_norm = 1.0
 mixed_precision_param = "bfloat16"
-steps = 300
+steps = 30
 enable_cpu_offload = false
 dataset = "vidgen1m_local"
 # meta file path
 dataset_path = "/data/limou/VIDGEN-1M/meta_data.csv"
-# folder contains video files
+# folder contains .mp4 files, the same folder with meta file is not set
 dataset_folder = "/data/limou/VIDGEN-1M/video_folder"
 
 [encoder]
@@ -47,7 +47,7 @@ tensor_parallel_degree = 1
 pipeline_parallel_degree = 1
 
 [activation_checkpoint]
-mode = "none"
+mode = "full"
 
 [checkpoint]
 enable = false

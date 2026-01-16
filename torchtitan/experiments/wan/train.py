@@ -54,22 +54,17 @@ class WanTrainer(Trainer):
     def forward_backward_step(
         self, input_dict: dict[str, torch.Tensor], labels: torch.Tensor
     ) -> torch.Tensor:
-        # logger.info("forward_backward_step, input_dict={}, labels={}".format(input_dict, labels))
-
+ 
         # TODO (limou)
+        # remove these checks
         assert not input_dict["video"].requires_grad
         assert not input_dict["input_ids"].requires_grad
         assert not input_dict["attention_mask"].requires_grad
         
-        # logger.info(f"wan forward_backward_step, input_dict={input_dict}")
+
         with torch.no_grad():
             model_inputs = self.encoder(input_dict, self.flow_match_scheduler)
-        # logger.info(f"after encoder, model_inputs={model_inputs}")
 
-        # print_tensor(model_inputs["latents"], "latents")
-        # print_tensor(model_inputs["context"], "context")
-        # print_tensor(model_inputs["timestep"], "timestep")
-        
         with self.maybe_enable_amp:
             pred = self.model_parts[0](
                 x=model_inputs["latents"],
@@ -78,8 +73,6 @@ class WanTrainer(Trainer):
                 # TODO (limou)
                 # attention_mask ?
             )
-
-            # print_tensor(pred, "pred")
 
             loss = self.loss_fn(pred, model_inputs["training_target"],
                 model_inputs["timestep"], self.flow_match_scheduler)

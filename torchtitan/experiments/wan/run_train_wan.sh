@@ -2,8 +2,6 @@ set -ex
 
 CURDIR=$(cd $(dirname $0); pwd)
 
-CONFIG_FILE=${CURDIR}/train_configs/wan2.1_t2v_debug.toml
-
 export PYTHONPATH=$(realpath "${CURDIR}/../../../")
 echo "PYTHONPATH : ${PYTHONPATH}"
 
@@ -14,6 +12,8 @@ NNODES=1
 NPROC_PER_NODE=1
 MASTER_ADDR="localhost"
 MASTER_PORT="23500"
+
+CONFIG_FILE=${CURDIR}/train_configs/wan2.1_t2v_debug.toml
 
 torchrun \
     --nnodes=$NNODES \
