@@ -42,8 +42,6 @@ def get_train_spec() -> TrainSpec:
         parallelize_fn=parallelize_wan,
         pipelining_fn=None,  # Pipeline parallel not implemented yet
         build_optimizers_fn=build_optimizers,
-        # TODO (limou)
-        # build scheduler from torchtitan base Trainer
         build_lr_schedulers_fn=build_lr_schedulers,
         build_dataloader_fn=build_wan_dataloader,
         build_tokenizer_fn=None,

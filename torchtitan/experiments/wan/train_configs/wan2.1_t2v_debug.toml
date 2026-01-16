@@ -20,7 +20,11 @@ max_norm = 1.0
 mixed_precision_param = "bfloat16"
 steps = 300
 enable_cpu_offload = false
-dataset = "vidgen-1m"
+dataset = "vidgen1m_local"
+# meta file path
+dataset_path = "/data/limou/VIDGEN-1M/meta_data.csv"
+# folder contains video files
+dataset_folder = "/data/limou/VIDGEN-1M/video_folder"
 
 [encoder]
 t5_checkpoint_path = "/data/models/Wan-AI/Wan2.1-T2V-14B/models_t5_umt5-xxl-enc-bf16.pth"

@@ -1,14 +1,16 @@
+import logging
+
 import torch.nn as nn
 import torch.nn.functional as F
 
-from torchtitan.tools.logging import logger
+logger = logging.getLogger(__name__)
 
 class WanLoss(nn.Module):
     def __init__(self):
         super().__init__()
 
     def forward(self, pred, target, timestep, scheduler):
-        logger.info("compute wan loss ...")
+        # logger.info("compute wan loss ...")
         # TODO (limou)
         # check dtype
         loss = F.mse_loss(pred.float(), target.float(), reduction="mean")

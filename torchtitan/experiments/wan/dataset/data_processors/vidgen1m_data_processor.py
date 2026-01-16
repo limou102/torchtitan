@@ -3,6 +3,7 @@ import os
 import logging
 import collections
 from typing import Any, Dict, List, Optional, Union, Sequence
+from pathlib import Path
 
 import numpy as np
 
@@ -26,15 +27,18 @@ logger = logging.getLogger(__name__)
 
 def get_dataset_config_vidgen1m(job_config : JobConfig) -> DatasetConfig:
     # TODO (limou)
-    # use remote streaming dataset
+    # for test, this is local dataset
+    # change to remote dataset with streaming=True
     return DatasetConfig(
-            path = "/data/limou/VIDGEN-1M/meta_data.json",
-            loader = lambda path: load_dataset("json", data_files=path, split="train"),
+            path = "Fudan-FUXI/VIDGEN-1M",
+            loader = lambda data_path: load_dataset(Path(data_path).suffix.lstrip("."),
+                data_files=data_path, split="train"),
 
             # TODO (limou)
             # use job_config as arguments to pass more data processor parameters
             sample_processor = VIDGEN1MDataProcessor(
-                data_folder="/data/limou/VIDGEN-1M/",
+                data_folder=job_config.training.dataset_folder or \
+                    os.path.dirname(job_config.training.dataset_path),
                 text_tokenizer_id = "google/umt5-xxl",
                 num_frames=81),
         )
@@ -350,6 +354,7 @@ class VIDGEN1MDataProcessor:
         self.num_frames = num_frames
         self.text_tokenizer = AutoTokenizer.from_pretrained(text_tokenizer_id)
         self.video_processor = VideoProcessor()
+        logger.info(f"init VIDGEN1MDataProcessor, data_folder={data_folder}")
 
     def __call__(self, inputs : dict[str, Any]) -> Dict[str, Any]:
         """
@@ -388,8 +393,8 @@ class VIDGEN1MDataProcessor:
     def _load_video(self, video_path : str):
         # TODO (limou)
         # multiple video decode libraries
-        return self._load_video_decord(video_path)
-        # return self._load_video_imageio(video_path)
+        # return self._load_video_decord(video_path)
+        return self._load_video_imageio(video_path)
 
     def _load_video_decord(self, video_path : str):
         from decord import VideoReader, cpu
@@ -402,7 +407,7 @@ class VIDGEN1MDataProcessor:
         
         valid_nframes = ((actual_nframes - 1) // 4) * 4 + 1 if actual_nframes > 1 else 1
             
-        uniform_sampled_frames = np.linspace(0, total_frames - 1, valid_nframes, dtype=int)
+        uniform_sampled_frames = np.arange(valid_nframes, dtype=int)
             
         frame_idx = uniform_sampled_frames.tolist()
         spare_frames = vr.get_batch(frame_idx).asnumpy()

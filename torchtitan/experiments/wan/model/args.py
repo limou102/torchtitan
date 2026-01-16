@@ -21,7 +21,6 @@ class WanModelArgs(BaseModelArgs):
     
 
     def update_from_config(self, job_config, **kwargs) -> None:
-        # TODO (limou)
         logger.info("update WanModelArgs from config.")
         pass
 

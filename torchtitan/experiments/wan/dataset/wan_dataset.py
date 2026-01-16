@@ -19,7 +19,7 @@ from .data_processors import get_dataset_config_vidgen1m
 logger = logging.getLogger(__name__)
 
 DATASETS : Dict[str, Callable[[JobConfig], DatasetConfig]]= {
-    "vidgen-1m": get_dataset_config_vidgen1m,
+    "vidgen1m_local": get_dataset_config_vidgen1m,
 }
 
 def _validate_dataset(job_config : JobConfig, dataset_name : str, dataset_path: Optional[str] = None):

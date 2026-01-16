@@ -26,8 +26,6 @@ class WanTrainer(Trainer):
             else torch.float32
         )
 
-        model_args = self.train_spec.model_args[job_config.model.flavor]
-
         # TODO : (limou)
         # bfloat16 mixed precision
         self.encoder = WanVideoEncoder(job_config).to(
@@ -49,7 +47,7 @@ class WanTrainer(Trainer):
         # TODO (limou)
         # flow_match_scheduler stateful load && save
         self.flow_match_scheduler = FlowMatchScheduler()
-        logger.info(f"job_config={job_config}")
+        # logger.info(f"job_config={job_config}")
         # end __init__
 
 
@@ -57,31 +55,6 @@ class WanTrainer(Trainer):
         self, input_dict: dict[str, torch.Tensor], labels: torch.Tensor
     ) -> torch.Tensor:
         # logger.info("forward_backward_step, input_dict={}, labels={}".format(input_dict, labels))
-        
-        # TODO (limou)
-        # < -- load input_dict from local file, dataset hasn't been implemented now
-        # if not hasattr(self, "inputs_from_local"):
-        #     self.inputs_from_local = torch.load("/data/limou/common_modules/fake_inputs_wan.pt")
-        #     def move_to_device(x):
-        #         if torch.is_tensor(x):
-        #             return x.to(self.device)
-        #         if isinstance(x, dict):
-        #             return {k: move_to_device(v) for k, v in x.items()}
-        #         return x
-        #     self.inputs_from_local = move_to_device(self.inputs_from_local)
-            
-        #     self.step_idx = 0
-        
-        # self.step_idx += 1
-        # if self.step_idx > 3:
-        #     import sys
-        #     logger.warning("force exit")
-        #     sys.exit()
-        # logger.info(f"step_idx = {self.step_idx}")
-
-        # input_dict = self.inputs_from_local[self.step_idx]
-        # input_dict["video"] = input_dict.pop("input")
-        # -->
 
         # TODO (limou)
         assert not input_dict["video"].requires_grad

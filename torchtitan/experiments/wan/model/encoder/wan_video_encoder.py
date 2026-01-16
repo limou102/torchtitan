@@ -22,6 +22,7 @@ class WanVideoEncoder(torch.nn.Module):
 
         encoder_config = job_config.encoder
 
+        assert encoder_config.vae_type in ("wan_video_vae", "wan_video_vae_38")
         self.vae = WanVideoVAE() if encoder_config.vae_type == "wan_video_vae" else WanVideoVAE38()
         self.text_encoder = WanTextEncoder()
 
@@ -57,11 +58,11 @@ class WanVideoEncoder(torch.nn.Module):
             logger.info("T5 loaded.")
         pass
 
-    def encode_prompt(self, input_ids, attetnion_mask, device="cuda"):
-        seq_lens = attetnion_mask.gt(0).sum(dim=1).long()
-        prompt_emb = self.text_encoder(input_ids, attetnion_mask)
+    def encode_prompt(self, input_ids, attention_mask, device="cuda"):
+        seq_lens = attention_mask.gt(0).sum(dim=1).long()
+        prompt_emb = self.text_encoder(input_ids, attention_mask)
         for i, v in enumerate(seq_lens):
-            prompt_emb[:, v:] = 0
+            prompt_emb[i, v:] = 0
         return prompt_emb
 
     def preprocess_video(
@@ -121,10 +122,8 @@ class WanVideoEncoder(torch.nn.Module):
 
         return height, width, num_frames
 
-    def noise_initialize(self, height, width, num_frames, seed, rand_device, vace_reference_image, batch_size=1):
+    def noise_initialize(self, height, width, num_frames, seed, rand_device, batch_size=1):
         length = (num_frames - 1) // 4 + 1
-        if vace_reference_image is not None:
-            length += 1
         shape = (
             batch_size,
             self.vae.model.z_dim,
@@ -133,11 +132,9 @@ class WanVideoEncoder(torch.nn.Module):
             width // self.vae.upsampling_factor,
         )
         noise = self.generate_noise(shape, seed=seed, rand_device=rand_device)
-        if vace_reference_image is not None:
-            noise = torch.concat((noise[:, :, -1:], noise[:, :, :-1]), dim=2)
         return noise
 
-    def embed_input_video(self, input_video, noise, tiled, tile_size, tile_stride, vace_reference_image):
+    def embed_input_video(self, input_video, noise, tiled, tile_size, tile_stride):
         input_video = self.preprocess_video(input_video)  # B, C, T, H, W
         input_latents = self.vae.encode(
             input_video,
@@ -146,12 +143,6 @@ class WanVideoEncoder(torch.nn.Module):
             tile_size=tile_size,
             tile_stride=tile_stride,
         ).to(dtype=self.dtype, device=self.device)
-        if vace_reference_image is not None:
-            vace_reference_image = self.preprocess_video([vace_reference_image])
-            vace_reference_latents = self.vae.encode(vace_reference_image, device=self.device).to(
-                dtype=self.dtype, device=self.device
-            )
-            input_latents = torch.concat([vace_reference_latents, input_latents], dim=2)
         return input_latents
 
 
@@ -220,19 +211,12 @@ class WanVideoEncoder(torch.nn.Module):
             vid = inputs["video"]
             if vid.ndim == 5:
                 # (B, C, F, H, W)
-                if vid.shape[2] != num_frames or vid.shape[3] != height or vid.shape[4] != width:
-                    # vid.shape[2:] is (F, H, W)
-                    logger.info(f"Resizing input video tensor (5D) from {vid.shape[2:]} to {(num_frames, height, width)}")
-                    vid = torch.nn.functional.interpolate(vid, size=(num_frames, height, width), mode='trilinear', align_corners=False)
-                    inputs["video"] = vid
-            elif vid.ndim == 4:
-                # (F, H, W, C)
-                if vid.shape[0] != num_frames or vid.shape[1] != height or vid.shape[2] != width:
-                    logger.info(f"Resizing input video tensor (4D) from {vid.shape[:3]} to {(num_frames, height, width)}")
-                    vid = vid.permute(3, 0, 1, 2).unsqueeze(0) # (1, C, F, H, W)
-                    vid = torch.nn.functional.interpolate(vid, size=(num_frames, height, width), mode='trilinear', align_corners=False)
-                    inputs["video"] = vid.squeeze(0).permute(1, 2, 3, 0).contiguous()
-        
+                # Ensure dtype matches model
+                if vid.dtype != self.dtype:
+                    logger.info(f"Casting video from {vid.dtype} to {self.dtype}")
+                    vid = vid.to(self.dtype)
+                inputs["video"] = vid
+
         batch_size = 1
         if inputs.get("video") is not None and isinstance(inputs["video"], torch.Tensor) and inputs["video"].ndim == 5:
              batch_size = inputs["video"].shape[0]
@@ -244,8 +228,7 @@ class WanVideoEncoder(torch.nn.Module):
             inputs["width"],
             inputs["num_frames"],
             inputs["seed"],
-            self.device,
-            inputs["vace_reference_image"],
+            "cpu",
             batch_size=batch_size,
         )
         inputs.update({"noise": noise})
@@ -257,7 +240,6 @@ class WanVideoEncoder(torch.nn.Module):
                 inputs["tiled"],
                 inputs["tile_size"],
                 inputs["tile_stride"],
-                inputs["vace_reference_image"],
             )
             if not scheduler.training:
                 latents = scheduler.add_noise(input_latents, noise, timestep=scheduler.timesteps[0])
